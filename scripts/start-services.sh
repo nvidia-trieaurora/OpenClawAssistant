@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Start NemoClaw auxiliary services: Telegram bridge
+# Start NemoClaw auxiliary services: MCP bridge, Telegram bridge,
 # and cloudflared tunnel for public access.
 #
 # Usage:
@@ -97,7 +97,7 @@ stop_service() {
 show_status() {
   mkdir -p "$PIDDIR"
   echo ""
-  for svc in telegram-bridge cloudflared; do
+  for svc in mcp-bridge cursor-agent-bridge telegram-bridge cloudflared; do
     if is_running "$svc"; then
       echo -e "  ${GREEN}●${NC} $svc  (PID $(cat "$PIDDIR/$svc.pid"))"
     else
@@ -119,6 +119,8 @@ do_stop() {
   mkdir -p "$PIDDIR"
   stop_service cloudflared
   stop_service telegram-bridge
+  stop_service mcp-bridge
+  stop_service cursor-agent-bridge
   info "All services stopped."
 }
 
@@ -150,6 +152,14 @@ do_start() {
   fi
 
   mkdir -p "$PIDDIR"
+
+  # MCP bridge (proxies MCP servers from host to sandbox)
+  start_service mcp-bridge \
+    node "$REPO_DIR/scripts/mcp-bridge.js"
+
+  # Cursor Agent bridge (exposes Cursor CLI as HTTP API for sandbox)
+  start_service cursor-agent-bridge \
+    node "$REPO_DIR/scripts/cursor-agent-bridge.js"
 
   # Telegram bridge (only if token provided)
   if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${NVIDIA_API_KEY:-}" ]; then
@@ -191,6 +201,18 @@ do_start() {
 
   if [ -n "$tunnel_url" ]; then
     printf "  │  Public URL:  %-40s│\n" "$tunnel_url"
+  fi
+
+  if is_running mcp-bridge; then
+    echo "  │  MCP Bridge:  running (port 18790)                  │"
+  else
+    echo "  │  MCP Bridge:  not started                           │"
+  fi
+
+  if is_running cursor-agent-bridge; then
+    echo "  │  Cursor Agent: running (port 18792)                 │"
+  else
+    echo "  │  Cursor Agent: not started                          │"
   fi
 
   if is_running telegram-bridge; then

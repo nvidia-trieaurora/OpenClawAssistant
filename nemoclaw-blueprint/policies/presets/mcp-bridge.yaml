@@ -1,50 +1,58 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# MCP Bridge — routes OpenClaw MCP requests through the host-side bridge
+# server which has VPN/SSO access to NVIDIA internal services.
 
 preset:
-  name: outlook
-  description: "Microsoft Outlook, Teams, and Graph API access"
+  name: mcp-bridge
+  description: "MCP Bridge proxy on host (port 18790) for NVIDIA MaaS + external MCP servers"
 
 network_policies:
-  outlook_graph:
-    name: outlook_graph
+  mcp_bridge_host:
+    name: mcp_bridge_host
     endpoints:
-      - host: graph.microsoft.com
+      - host: host.docker.internal
+        port: 18791
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: "*", path: "/**" }
+      - host: host.docker.internal
+        port: 18790
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: "*", path: "/**" }
+      - host: host.docker.internal
+        port: 18792
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: "*", path: "/**" }
+    binaries:
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
+
+  mcp_direct_thirdparty:
+    name: mcp_direct_thirdparty
+    endpoints:
+      - host: mcp.composio.dev
         port: 443
         protocol: rest
         enforcement: enforce
         tls: terminate
         rules:
           - allow: { method: "*", path: "/**" }
-      - host: login.microsoftonline.com
+      - host: nvidia-be.glean.com
         port: 443
         protocol: rest
         enforcement: enforce
         tls: terminate
         rules:
           - allow: { method: "*", path: "/**" }
-      - host: outlook.office365.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        rules:
-          - allow: { method: "*", path: "/**" }
-      - host: outlook.office.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        rules:
-          - allow: { method: "*", path: "/**" }
-      - host: teams.microsoft.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        rules:
-          - allow: { method: "*", path: "/**" }
-      - host: chats.teams.microsoft.com
+      - host: bmeemseeqpnsqgwdpcoj.supabase.co
         port: 443
         protocol: rest
         enforcement: enforce
