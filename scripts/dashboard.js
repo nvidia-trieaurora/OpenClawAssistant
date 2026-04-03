@@ -607,7 +607,7 @@ const HTML = `<!DOCTYPE html>
       window.open('/api/logs', '_blank');
     }
 
-    function escHtml(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+    function escHtml(s) { return s.replace(/'/g, '&apos;').replace(/"/g, '&quot;'); }
 
     function openMcpDetail(slug, name, type) {
       currentMcpSlug = slug;
@@ -655,7 +655,7 @@ const HTML = `<!DOCTYPE html>
         const data = await res.json();
         if (data.ok) {
           el.className = 'test-result ok';
-          el.textContent = 'Connected (HTTP ' + (data.status || '200') + ')\n' + (data.body || '').slice(0, 200);
+          el.textContent = 'Connected (HTTP ' + (data.status || '200') + ') ' + (data.body || '').slice(0, 200);
         } else {
           el.className = 'test-result fail';
           el.textContent = 'Failed: ' + (data.error || 'unknown error');
