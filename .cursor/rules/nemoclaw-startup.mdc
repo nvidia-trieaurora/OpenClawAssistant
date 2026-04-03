@@ -1,0 +1,133 @@
+---
+description: NemoClaw personal deployment - startup, management, and development guide
+globs:
+alwaysApply: true
+---
+
+# NemoClaw Personal Deployment — Startup Guide
+
+## Owner
+Lê Long Trường Thịnh (Thinh Le) — Software Systems Engineer @ NVIDIA
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Host (macOS)                          │
+│                                                         │
+│  ┌──────────┐ ┌──────────────┐ ┌───────────────────┐   │
+│  │ Dashboard │ │  MCP Bridge  │ │ Cursor Agent Bridge│  │
+│  │  :3333    │ │   :18790     │ │      :18792        │  │
+│  └────┬─────┘ └──────┬───────┘ └─────────┬──────────┘  │
+│       │              │                    │              │
+│       │   ┌──────────▼──────────┐        │              │
+│       │   │  ~/.cursor/mcp.json │        │              │
+│       │   │  (22 MCP servers)   │        │              │
+│       │   └──────────┬──────────┘        │              │
+│       │              │ VPN               │              │
+│       │   ┌──────────▼──────────┐        │              │
+│       │   │  NVIDIA MaaS MCPs   │        │              │
+│       │   │  nvaihub.nvidia.com │        │              │
+│       │   └─────────────────────┘        │              │
+│  ┌────▼──────────────────────────────────▼──────────┐   │
+│  │              OpenShell Sandbox (:18789)           │   │
+│  │  ┌─────────┐  ┌──────────────┐  ┌────────────┐  │   │
+│  │  │ OpenClaw │  │  Nemotron    │  │  Policies  │  │   │
+│  │  │  Agent   │  │  Inference   │  │  Security  │  │   │
+│  │  └─────────┘  └──────────────┘  └────────────┘  │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Quick Start (Local)
+
+### First time setup:
+```bash
+cd /Users/tlle/Documents/PersonalProject/NemoClaw
+# 1. Set your NVIDIA API key in .env
+# 2. Run:
+./start.sh
+```
+
+### Daily operations:
+```bash
+./start.sh              # start everything
+./start.sh --status     # check what's running
+./start.sh --stop       # stop all services
+./start.sh --services   # start only bridges (no sandbox)
+```
+
+### If user asks to start/restart NemoClaw:
+1. Read `.env` to check if NVIDIA_API_KEY is set
+2. Run `./start.sh --status` to check current state
+3. If services are down, run `./start.sh --services`
+4. If sandbox is down, run `./start.sh`
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `.env` | Environment variables (API keys, ports) |
+| `start.sh` | One-command startup/stop/status |
+| `scripts/dashboard.js` | Web dashboard at :3333 |
+| `scripts/mcp-bridge.js` | Proxies MCP requests from sandbox through host VPN |
+| `scripts/cursor-agent-bridge.js` | Exposes Cursor CLI as HTTP API |
+| `scripts/telegram-bridge.js` | Telegram bot orchestrator (Chiera) |
+| `scripts/start-services.sh` | Service lifecycle manager |
+| `nemoclaw-blueprint/policies/` | Network/security policies |
+| `~/.cursor/mcp.json` | MCP server configurations (read by bridge) |
+
+## MCP Servers (22 total)
+
+### NVIDIA Internal (requires VPN):
+- MaaS Confluence, GitLab, Google Drive, IPPSEC Metrics, Jama Cache
+- MaaS Jira, Colossus MySQL, NVBugs, NVKS Prometheus
+- MaaS Nsight Copilot CUDA, OneDrive, PagerDuty, SharePoint
+- MaaS SonarQube, QuerySage, TestPilot
+- nvSkills, ChipNemo Slack Proxy
+
+### External:
+- Notion, Supabase, Jira (Composio), Glean, GitNexus
+
+## Git Workflow
+
+```bash
+# Sync from upstream NVIDIA/NemoClaw:
+git fetch upstream
+git rebase upstream/main
+git push origin personal/tlle
+
+# Remotes:
+# origin   = https://github.com/nvidia-trieaurora/OpenClawAssistant.git
+# upstream = https://github.com/NVIDIA/NemoClaw.git
+# Branch: personal/tlle (default)
+```
+
+## Brev Deployment
+
+```bash
+# Deploy to cloud:
+nemoclaw deploy my-gpu-box
+
+# Or use Brev Launchable:
+# URL: https://github.com/nvidia-trieaurora/OpenClawAssistant.git
+# Branch: personal/tlle
+# Startup: scripts/brev-setup.sh
+```
+
+## Ports
+
+| Port | Service |
+|------|---------|
+| 3333 | Dashboard (web UI) |
+| 18789 | OpenClaw Chat UI (sandbox) |
+| 18790 | MCP Bridge (HTTP) |
+| 18791 | MCP Bridge (HTTPS) |
+| 18792 | Cursor Agent Bridge |
+
+## Troubleshooting
+
+- **Gateway not connecting:** Run `openshell daemon start`
+- **Sandbox not starting:** Run `nemoclaw onboard --non-interactive`
+- **MCP servers not showing:** Check VPN connection, run `curl http://localhost:18790/`
+- **Docker errors:** Ensure Docker Desktop is running
