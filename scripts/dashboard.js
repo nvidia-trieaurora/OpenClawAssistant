@@ -28,6 +28,27 @@ const PORT = parseInt(process.env.DASHBOARD_PORT || "3000", 10);
 const SANDBOX_PORT = parseInt(process.env.SANDBOX_PORT || "18789", 10);
 const MCP_BRIDGE_PORT = parseInt(process.env.MCP_BRIDGE_PORT || "18790", 10);
 const CURSOR_BRIDGE_PORT = parseInt(process.env.CURSOR_BRIDGE_PORT || "18792", 10);
+const CHAT_UI_TOKEN = process.env.CHAT_UI_TOKEN || "";
+let cachedToken = CHAT_UI_TOKEN;
+
+function readChatUiToken() {
+  if (cachedToken) return cachedToken;
+  try {
+    const { execFileSync } = require("child_process");
+    const sandboxName = process.env.SANDBOX_NAME || "my-assistant";
+    const confDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-dash-"));
+    const confPath = path.join(confDir, "config");
+    const sshConf = execFileSync("openshell", ["sandbox", "ssh-config", sandboxName], { encoding: "utf-8", timeout: 5000 });
+    fs.writeFileSync(confPath, sshConf, { mode: 0o600 });
+    const configJson = execFileSync("ssh", ["-T", "-F", confPath, "-o", "ConnectTimeout=5", `openshell-${sandboxName}`, "cat /sandbox/.openclaw/openclaw.json"], { encoding: "utf-8", timeout: 10000 });
+    fs.unlinkSync(confPath); fs.rmdirSync(confDir);
+    const token = JSON.parse(configJson)?.gateway?.auth?.token || "";
+    if (token) cachedToken = token;
+    return token;
+  } catch {
+    return "";
+  }
+}
 
 function checkPort(port) {
   return new Promise((resolve) => {
@@ -78,10 +99,12 @@ async function getSystemStatus() {
     mcpServers = mcpBridge.data.servers;
   }
 
+  const token = readChatUiToken();
+
   return {
     timestamp: new Date().toISOString(),
     gateway: openshellStatus,
-    sandbox: { up: sandbox.up, port: SANDBOX_PORT, list: sandboxList },
+    sandbox: { up: sandbox.up, port: SANDBOX_PORT, list: sandboxList, token },
     mcpBridge: { up: mcpBridge.up, port: MCP_BRIDGE_PORT, servers: mcpServers },
     cursorBridge: { up: cursorBridge.up, port: CURSOR_BRIDGE_PORT },
     system: {
@@ -298,6 +321,78 @@ const HTML = `<!DOCTYPE html>
     text-transform: uppercase; letter-spacing: 0.04em;
   }
 
+  .mcp-item { cursor: pointer; }
+
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 90%; max-width: 520px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 24px;
+    position: relative;
+  }
+
+  .modal-close {
+    position: absolute; top: 12px; right: 16px;
+    background: none; border: none; color: var(--text-muted);
+    font-size: 20px; cursor: pointer; padding: 4px 8px;
+  }
+  .modal-close:hover { color: var(--text-primary); }
+
+  .modal h2 {
+    font-size: 16px; font-weight: 600; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  .modal-field {
+    margin-bottom: 12px;
+  }
+  .modal-label {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .modal-value {
+    font-size: 13px; color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+
+  .modal-actions {
+    display: flex; gap: 8px; margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .test-result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    display: none;
+  }
+  .test-result.ok { display: block; background: var(--accent-dim); color: var(--accent); }
+  .test-result.fail { display: block; background: var(--red-dim); color: var(--red); }
+  .test-result.loading { display: block; background: var(--bg-primary); color: var(--text-muted); }
+
   .actions {
     display: flex; gap: 10px; flex-wrap: wrap;
     margin-bottom: 24px;
@@ -370,7 +465,7 @@ const HTML = `<!DOCTYPE html>
 
   <div class="main">
     <div class="actions">
-      <a class="action-btn primary" href="http://127.0.0.1:${SANDBOX_PORT}" target="_blank">Open Chat UI</a>
+      <a class="action-btn primary" id="chat-link" href="http://127.0.0.1:${SANDBOX_PORT}" target="_blank">Open Chat UI</a>
       <button class="action-btn" onclick="restartServices()">Restart Services</button>
       <button class="action-btn" onclick="viewLogs()">View Logs</button>
     </div>
@@ -395,7 +490,22 @@ const HTML = `<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="modal-overlay" id="mcp-modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <h2 id="modal-title">MCP Server</h2>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="action-btn" onclick="testMcpServer()">Test Connection</button>
+        <button class="action-btn" onclick="copyBridgeUrl()">Copy Bridge URL</button>
+      </div>
+      <div class="test-result" id="test-result"></div>
+    </div>
+  </div>
+
   <script>
+    let currentMcpSlug = '';
+
     function getMcpCategory(name) {
       if (name.includes('maas') || name.includes('nvidia') || name.includes('chipnemo') || name.includes('nvskills')) return 'nvidia';
       if (name.includes('local') || name === 'notion' || name === 'supabase' || name === 'gitnexus') return 'local';
@@ -430,6 +540,11 @@ const HTML = `<!DOCTYPE html>
     }
 
     function renderStatus(data) {
+      const chatLink = document.getElementById('chat-link');
+      if (data.sandbox.token) {
+        chatLink.href = 'http://127.0.0.1:' + data.sandbox.port + '/#token=' + data.sandbox.token;
+      }
+
       const cards = document.getElementById('status-cards');
       cards.innerHTML = [
         renderCard('Gateway', data.gateway === 'connected', data.gateway, 'OpenShell runtime'),
@@ -445,11 +560,12 @@ const HTML = `<!DOCTYPE html>
           .map(s => {
             const cat = getMcpCategory(s.slug);
             const initials = getMcpInitials(s.slug);
-            return '<div class="mcp-item">' +
+            const urlHint = s.url ? s.url.replace(/https?:\/\//, '').split('/')[0] : s.type;
+            return '<div class="mcp-item" onclick="openMcpDetail(\'' + s.slug + '\',\'' + escHtml(s.name) + '\',\'' + s.type + '\')" title="Click for details">' +
               '<div class="mcp-icon ' + cat + '">' + initials + '</div>' +
               '<div class="mcp-info">' +
               '<div class="mcp-name">' + s.name + '</div>' +
-              '<div class="mcp-type">' + s.type + '</div>' +
+              '<div class="mcp-type">' + urlHint + '</div>' +
               '</div></div>';
           }).join('');
       } else {
@@ -490,6 +606,76 @@ const HTML = `<!DOCTYPE html>
     function viewLogs() {
       window.open('/api/logs', '_blank');
     }
+
+    function escHtml(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+    function openMcpDetail(slug, name, type) {
+      currentMcpSlug = slug;
+      document.getElementById('modal-title').textContent = name;
+      document.getElementById('modal-body').innerHTML = '<div class="modal-field"><div class="modal-label">Loading...</div></div>';
+      document.getElementById('test-result').className = 'test-result';
+      document.getElementById('test-result').textContent = '';
+      document.getElementById('mcp-modal').classList.add('active');
+
+      fetch('/api/mcp/' + slug)
+        .then(r => r.json())
+        .then(data => {
+          let html = '';
+          html += field('Type', data.command ? 'Local (stdio)' : 'Remote (HTTP)');
+          if (data.url) html += field('URL', data.url);
+          if (data.command) html += field('Command', data.command + ' ' + (data.args || []).join(' '));
+          html += field('Bridge URL', 'http://localhost:' + ${MCP_BRIDGE_PORT} + '/mcp/' + slug + '/');
+          if (data.headers && Object.keys(data.headers).length > 0) {
+            html += field('Headers', JSON.stringify(data.headers, null, 2));
+          }
+          if (data.env) html += field('Env', JSON.stringify(data.env, null, 2));
+          if (data.description) html += field('Description', data.description);
+          if (data.tags) html += field('Tags', data.tags.join(', '));
+          document.getElementById('modal-body').innerHTML = html;
+        })
+        .catch(err => {
+          document.getElementById('modal-body').innerHTML = field('Error', err.message);
+        });
+    }
+
+    function field(label, value) {
+      return '<div class="modal-field"><div class="modal-label">' + label + '</div><div class="modal-value">' + value + '</div></div>';
+    }
+
+    function closeModal() {
+      document.getElementById('mcp-modal').classList.remove('active');
+    }
+
+    async function testMcpServer() {
+      const el = document.getElementById('test-result');
+      el.className = 'test-result loading';
+      el.textContent = 'Testing connection...';
+      try {
+        const res = await fetch('/api/mcp/' + currentMcpSlug + '/test', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          el.className = 'test-result ok';
+          el.textContent = 'Connected (HTTP ' + (data.status || '200') + ')\n' + (data.body || '').slice(0, 200);
+        } else {
+          el.className = 'test-result fail';
+          el.textContent = 'Failed: ' + (data.error || 'unknown error');
+        }
+      } catch (err) {
+        el.className = 'test-result fail';
+        el.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function copyBridgeUrl() {
+      const url = 'http://localhost:' + ${MCP_BRIDGE_PORT} + '/mcp/' + currentMcpSlug + '/';
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = event.target;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy Bridge URL', 1500);
+      });
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
     refresh();
     setInterval(refresh, 15000);
@@ -544,6 +730,68 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end(logs || "No logs found.");
+    return;
+  }
+
+  // GET /api/mcp/:slug — detail + config for one MCP server
+  const mcpDetail = req.url.match(/^\/api\/mcp\/([a-z0-9-]+)$/);
+  if (mcpDetail && req.method === "GET") {
+    const slug = mcpDetail[1];
+    try {
+      const configPath = process.env.MCP_CONFIG_PATH || path.join(os.homedir(), ".cursor", "mcp.json");
+      const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      const servers = raw.mcpServers || {};
+      let found = null;
+      for (const [name, config] of Object.entries(servers)) {
+        const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        if (s === slug) { found = { name, slug: s, ...config }; break; }
+      }
+      if (!found) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Server not found" }));
+        return;
+      }
+      const sanitized = { ...found };
+      if (sanitized.env) {
+        sanitized.env = Object.fromEntries(
+          Object.entries(sanitized.env).map(([k, v]) => [k, String(v).slice(0, 20) + "..."])
+        );
+      }
+      if (sanitized.args) {
+        sanitized.args = sanitized.args.map(a =>
+          (a.startsWith("sbp_") || a.startsWith("ntn_")) ? a.slice(0, 8) + "..." : a
+        );
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(sanitized, null, 2));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // POST /api/mcp/:slug/test — test connectivity to an MCP server
+  const mcpTest = req.url.match(/^\/api\/mcp\/([a-z0-9-]+)\/test$/);
+  if (mcpTest && req.method === "POST") {
+    const slug = mcpTest[1];
+    const testUrl = `http://127.0.0.1:${MCP_BRIDGE_PORT}/mcp/${slug}/`;
+    try {
+      const result = await new Promise((resolve) => {
+        const req = http.get(testUrl, { timeout: 5000 }, (r) => {
+          let data = "";
+          r.on("data", c => data += c);
+          r.on("end", () => resolve({ status: r.statusCode, ok: r.statusCode < 500, body: data.slice(0, 500) }));
+        });
+        req.on("error", e => resolve({ ok: false, error: e.message }));
+        req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }); });
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
     return;
   }
 
