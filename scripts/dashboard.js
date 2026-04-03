@@ -531,7 +531,7 @@ const HTML = `<!DOCTYPE html>
 
     async function refresh() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/status?t=' + Date.now());
         const data = await res.json();
         renderStatus(data);
       } catch (err) {
@@ -560,8 +560,8 @@ const HTML = `<!DOCTYPE html>
           .map(s => {
             const cat = getMcpCategory(s.slug);
             const initials = getMcpInitials(s.slug);
-            const urlHint = s.url ? s.url.replace(/https?:\/\//, '').split('/')[0] : s.type;
-            return '<div class="mcp-item" onclick="openMcpDetail(\'' + s.slug + '\',\'' + escHtml(s.name) + '\',\'' + s.type + '\')" title="Click for details">' +
+            const urlHint = s.url ? s.url.replace(/https?:[/][/]/, '').split('/')[0] : s.type;
+            return '<div class="mcp-item" onclick="openMcpDetail(' + JSON.stringify(s.slug) + ',' + JSON.stringify(s.name) + ',' + JSON.stringify(s.type) + ')" title="Click for details">' +
               '<div class="mcp-icon ' + cat + '">' + initials + '</div>' +
               '<div class="mcp-info">' +
               '<div class="mcp-name">' + s.name + '</div>' +
@@ -624,7 +624,7 @@ const HTML = `<!DOCTYPE html>
           html += field('Type', data.command ? 'Local (stdio)' : 'Remote (HTTP)');
           if (data.url) html += field('URL', data.url);
           if (data.command) html += field('Command', data.command + ' ' + (data.args || []).join(' '));
-          html += field('Bridge URL', 'http://localhost:' + ${MCP_BRIDGE_PORT} + '/mcp/' + slug + '/');
+          html += field('Bridge URL', 'http://localhost:${MCP_BRIDGE_PORT}/mcp/' + slug + '/');
           if (data.headers && Object.keys(data.headers).length > 0) {
             html += field('Headers', JSON.stringify(data.headers, null, 2));
           }
@@ -667,7 +667,7 @@ const HTML = `<!DOCTYPE html>
     }
 
     function copyBridgeUrl() {
-      const url = 'http://localhost:' + ${MCP_BRIDGE_PORT} + '/mcp/' + currentMcpSlug + '/';
+      const url = 'http://localhost:${MCP_BRIDGE_PORT}/mcp/' + currentMcpSlug + '/';
       navigator.clipboard.writeText(url).then(() => {
         const btn = event.target;
         btn.textContent = 'Copied!';
@@ -687,7 +687,11 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   if (req.url === "/" || req.url === "/index.html") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+    });
     res.end(HTML);
     return;
   }
