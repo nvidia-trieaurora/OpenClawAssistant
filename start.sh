@@ -161,10 +161,15 @@ if [ "$ACTION" = "start" ] || [ "$ACTION" = "--start" ]; then
   fi
 
   # 5. Ensure port forwarding for Chat UI
-  if ! curl -s -o /dev/null --max-time 2 http://127.0.0.1:18789/ 2>/dev/null; then
-    info "Forwarding port 18789 (Chat UI)..."
-    openshell forward start 18789 my-assistant --background 2>/dev/null || true
-    sleep 2
+  openshell forward stop 18789 my-assistant 2>/dev/null || true
+  sleep 1
+  info "Forwarding port 18789 (Chat UI)..."
+  openshell forward start 18789 my-assistant --background 2>/dev/null || true
+  sleep 2
+  if curl -s -o /dev/null --max-time 3 http://127.0.0.1:18789/ 2>/dev/null; then
+    info "Chat UI: OK"
+  else
+    warn "Chat UI port forward may have failed — try: openshell forward start 18789 my-assistant --background"
   fi
 
   # 6. Start auxiliary services
