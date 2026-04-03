@@ -3,26 +3,30 @@
 #
 # MCP Bridge — routes OpenClaw MCP requests through the host-side bridge
 # server which has VPN/SSO access to NVIDIA internal services.
+#
+# The bridge reads ~/.cursor/mcp.json and proxies requests from the sandbox
+# to remote MCP servers on the host network (where VPN + SSO are available).
 
 preset:
   name: mcp-bridge
-  description: "MCP Bridge proxy on host (port 18790) for NVIDIA MaaS + external MCP servers"
+  description: "MCP Bridge proxy on host for NVIDIA MaaS + external MCP servers"
 
 network_policies:
+  # ── Host-side bridge ports ──────────────────────────────────────
   mcp_bridge_host:
     name: mcp_bridge_host
     endpoints:
+      - host: host.docker.internal
+        port: 18790
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: "*", path: "/**" }
       - host: host.docker.internal
         port: 18791
         protocol: rest
         enforcement: enforce
         tls: terminate
-        rules:
-          - allow: { method: "*", path: "/**" }
-      - host: host.docker.internal
-        port: 18790
-        protocol: rest
-        enforcement: enforce
         rules:
           - allow: { method: "*", path: "/**" }
       - host: host.docker.internal
@@ -35,6 +39,70 @@ network_policies:
       - { path: /usr/local/bin/openclaw }
       - { path: /usr/local/bin/node }
 
+  # ── NVIDIA MaaS (internal, requires VPN) ────────────────────────
+  # All nvaihub.nvidia.com MCP servers: Confluence, GitLab, Google Drive,
+  # IPPSEC Metrics, Jama Cache, Jira, Colossus MySQL, NVBugs,
+  # NVKS Prometheus, Nsight Copilot CUDA, OneDrive, PagerDuty,
+  # SharePoint, SonarQube, QuerySage, TestPilot
+  nvidia_maas:
+    name: nvidia_maas
+    endpoints:
+      - host: nvaihub.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: "*", path: "/maas/**" }
+    binaries:
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
+
+  # ── NVIDIA MaaS Staging ─────────────────────────────────────────
+  nvidia_maas_staging:
+    name: nvidia_maas_staging
+    endpoints:
+      - host: maas.stg.astra.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: "*", path: "/maas/**" }
+    binaries:
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
+
+  # ── nvSkills ────────────────────────────────────────────────────
+  nvidia_nvskills:
+    name: nvidia_nvskills
+    endpoints:
+      - host: nvskills.dyn.nvidia.com
+        port: 80
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: "*", path: "/mcp/**" }
+    binaries:
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
+
+  # ── ChipNemo Slack Proxy ────────────────────────────────────────
+  nvidia_chipnemo:
+    name: nvidia_chipnemo
+    endpoints:
+      - host: chipnemo-mcp-api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: "*", path: "/chipnemo-slack-proxy/**" }
+    binaries:
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
+
+  # ── Third-party MCP servers (direct, not via bridge) ────────────
   mcp_direct_thirdparty:
     name: mcp_direct_thirdparty
     endpoints:
@@ -51,8 +119,15 @@ network_policies:
         enforcement: enforce
         tls: terminate
         rules:
-          - allow: { method: "*", path: "/**" }
+          - allow: { method: "*", path: "/mcp/**" }
       - host: bmeemseeqpnsqgwdpcoj.supabase.co
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: "*", path: "/**" }
+      - host: api.notion.com
         port: 443
         protocol: rest
         enforcement: enforce

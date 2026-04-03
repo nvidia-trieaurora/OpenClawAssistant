@@ -97,7 +97,7 @@ stop_service() {
 show_status() {
   mkdir -p "$PIDDIR"
   echo ""
-  for svc in mcp-bridge cursor-agent-bridge telegram-bridge cloudflared; do
+  for svc in dashboard mcp-bridge cursor-agent-bridge telegram-bridge cloudflared; do
     if is_running "$svc"; then
       echo -e "  ${GREEN}●${NC} $svc  (PID $(cat "$PIDDIR/$svc.pid"))"
     else
@@ -121,6 +121,7 @@ do_stop() {
   stop_service telegram-bridge
   stop_service mcp-bridge
   stop_service cursor-agent-bridge
+  stop_service dashboard
   info "All services stopped."
 }
 
@@ -152,6 +153,10 @@ do_start() {
   fi
 
   mkdir -p "$PIDDIR"
+
+  # Dashboard (web UI for managing NemoClaw)
+  start_service dashboard \
+    node "$REPO_DIR/scripts/dashboard.js"
 
   # MCP bridge (proxies MCP servers from host to sandbox)
   start_service mcp-bridge \
@@ -201,6 +206,12 @@ do_start() {
 
   if [ -n "$tunnel_url" ]; then
     printf "  │  Public URL:  %-40s│\n" "$tunnel_url"
+  fi
+
+  if is_running dashboard; then
+    echo "  │  Dashboard:   http://localhost:3000                  │"
+  else
+    echo "  │  Dashboard:   not started                           │"
   fi
 
   if is_running mcp-bridge; then
